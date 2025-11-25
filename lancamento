@@ -1,0 +1,138 @@
+import pandas as pd
+import pyautogui
+import time
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import threading
+import keyboard # New import for key monitoring
+
+# Flag to signal stopping the automation
+stop_automation_flag = False
+
+def formatar_data(data):
+    if pd.isna(data):
+        return ''
+    if isinstance(data, pd.Timestamp):
+        return data.strftime('%d/%m/%Y')
+    try:
+        return pd.to_datetime(data).strftime('%d/%m/%Y')
+    except:
+        return str(data)
+
+def check_for_stop_key():
+    global stop_automation_flag
+    keyboard.add_hotkey('delete', lambda: set_stop_flag()) # Chama uma função auxiliar
+    # This thread will keep running, so we don't need a while True loop here.
+    # The hotkey callback will set the flag.
+
+
+def set_stop_flag():
+    global stop_automation_flag
+    stop_automation_flag = True
+
+def update_progress_label(text):
+    # Agendar a atualização da label para ser executada no thread principal
+    janela.after(0, lambda: progress_label.config(text=text))
+
+def iniciar_lancamento(arquivo):
+    global stop_automation_flag
+    stop_automation_flag = False # Reset flag for a new run
+    progress_label.config(text="Iniciando...")
+    janela.update_idletasks() # Update GUI immediately
+
+    # Start the key listener in a separate thread
+    stop_key_thread = threading.Thread(target=check_for_stop_key, daemon=True)
+    stop_key_thread.start()
+
+    try:
+        df = pd.read_excel(arquivo)
+        df.columns = df.columns.str.strip().str.replace(" ", "_")
+        total_rows = len(df)
+
+        messagebox.showinfo("Atenção", "Você terá 5 segundos para focar na planilha antes do script iniciar. Pressione 'DEL' a qualquer momento para parar.")
+        time.sleep(5)
+
+        for index, row in df.iterrows():
+            if stop_automation_flag:
+                messagebox.showinfo("Parado", "Lançamento interrompido pelo usuário.")
+                progress_label.config(text="Parado.")
+                return
+
+            current_row_display = index + 1
+            progress_label.config(text=f"Processando linha {current_row_display} de {total_rows}...")
+            janela.update_idletasks() # Update GUI
+
+            pyautogui.write(str(int(row['N_FUNC'])))
+            pyautogui.press('tab')
+            time.sleep(0.5)
+
+            if row['MAIS_UM_VINCULO'] == 1:
+                pyautogui.press('esc')
+                pyautogui.write(str(row['VÍNCULO']))
+                pyautogui.press('tab')
+                time.sleep(0.5)
+
+            pyautogui.write(str(row['QTDE']))
+            pyautogui.press('tab')
+            time.sleep(0.5)
+
+            inicio = formatar_data(row['INICIO'])
+            pyautogui.write(inicio)
+            pyautogui.press('tab')
+            time.sleep(0.5)
+
+            termino = formatar_data(row['TERMINO'])
+            pyautogui.write(termino)
+            pyautogui.press('tab')
+            time.sleep(0.5)
+
+        messagebox.showinfo("Concluído", "Lançamento finalizado com sucesso!")
+        progress_label.config(text="Concluído!")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Ocorreu um erro:\n{e}")
+        progress_label.config(text="Erro!")
+    finally:
+        # Remove the hotkey when done or an error occurs
+        keyboard.remove_hotkey('delete')
+        stop_automation_flag = False # Ensure flag is reset
+
+def selecionar_arquivo():
+    caminho = filedialog.askopenfilename(
+        filetypes=[("Planilhas Excel", "*.xlsx *.xls")],
+        title="Selecione a planilha"
+    )
+    if caminho:
+        entrada_arquivo.delete(0, tk.END)
+        entrada_arquivo.insert(0, caminho)
+        progress_label.config(text="") # Clear progress when a new file is selected
+
+def iniciar():
+    caminho = entrada_arquivo.get()
+    if not caminho:
+        messagebox.showwarning("Aviso", "Selecione um arquivo primeiro.")
+        return
+    # Run the automation in a separate thread to keep the GUI responsive
+    automation_thread = threading.Thread(target=iniciar_lancamento, args=(caminho,))
+    automation_thread.start()
+
+# Interface gráfica
+janela = tk.Tk()
+janela.title("Lançador Automático Siarhes")
+janela.geometry("450x200") # Increased height
+
+tk.Label(janela, text="Selecione a planilha Excel:").pack(pady=5)
+
+entrada_arquivo = tk.Entry(janela, width=50)
+entrada_arquivo.pack(pady=5)
+
+btn_procurar = tk.Button(janela, text="Procurar", command=selecionar_arquivo)
+btn_procurar.pack(pady=5)
+
+btn_iniciar = tk.Button(janela, text="Iniciar Lançamento", command=iniciar, bg="green", fg="white")
+btn_iniciar.pack(pady=10)
+
+# Progress label
+progress_label = tk.Label(janela, text="")
+progress_label.pack(pady=5)
+
+janela.mainloop()
